@@ -307,7 +307,7 @@ void PlaySong(std::string songFileName, bool& isPlaying) {
             break;
         playNotes(event.notes);
     }
-
+    isPlaying = false; // when finished the song set not playing.
     return;
 
 }
