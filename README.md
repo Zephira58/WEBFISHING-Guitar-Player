@@ -1,6 +1,8 @@
 # WEBFISHING Guitar Player
 
 This project enhances the WEBFISHING game by providing a guitar-playing feature that runs in the background while you play.
+There is a discord server [here](https://discord.gg/7WtemYDazb) for sharing MIDI files, feel free to join and contribute your own MIDIs.
+
 
 ## Overview
 
@@ -81,3 +83,4 @@ This processing ensures that your MIDI files are optimized for the best possible
 ## Contributing
 
 Contributions to improve the WEBFISHING Guitar Player are welcome. Please feel free to submit pull requests or open issues to discuss potential enhancements.
+
