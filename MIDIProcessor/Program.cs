@@ -117,17 +117,47 @@ namespace miditotxt
             // Print a simple progress message to console
             Console.WriteLine($"Converted: {Path.GetFileName(midiFilePath)}");
         }
+        public class ShiftParameters
+        {
+            public double NoShiftBonus { get; set; } = 0.11;
+            public double OctaveShiftBonus { get; set; } = 0.15;
+            public double MaxShiftPenalty { get; set; } = 0.3;
+            public double PlayableNoteWeight { get; set; } = 2.2;
+        }
 
         private static int CalculateOptimalShift(List<byte> notes)
         {
+            ShiftParameters parameters = new ShiftParameters();
             int bestShift = 0;
             int maxPlayableNotes = 0;
+            double bestScore = double.MinValue;
 
             for (int shift = -127; shift <= 127; shift++)
             {
                 int playableNotes = notes.Count(n => n + shift >= 40 && n + shift <= 79);
-                if (playableNotes > maxPlayableNotes)
+
+                // Calculate a normalized score between 0 and 1 for playable notes
+                double normalizedPlayableScore = (double)playableNotes / notes.Count;
+
+                // Start with the weighted normalized playable score
+                double score = normalizedPlayableScore * parameters.PlayableNoteWeight;
+
+                // Apply bonuses for preferred shifts
+                if (shift == 0)
                 {
+                    score += parameters.NoShiftBonus;
+                }
+                else if (shift % 12 == 0)
+                {
+                    score += parameters.OctaveShiftBonus;
+                }
+
+                // Penalize larger shifts
+                score -= Math.Abs(shift) * parameters.MaxShiftPenalty / 127.0;
+
+                if (score > bestScore || (score == bestScore && Math.Abs(shift) < Math.Abs(bestShift)))
+                {
+                    bestScore = score;
                     maxPlayableNotes = playableNotes;
                     bestShift = shift;
                 }
@@ -135,5 +165,22 @@ namespace miditotxt
 
             return bestShift;
         }
+        //private static int CalculateOptimalShift(List<byte> notes)
+        //{
+        //    int bestShift = 0;
+        //    int maxPlayableNotes = 0;
+
+        //    for (int shift = -127; shift <= 127; shift++)
+        //    {
+        //        int playableNotes = notes.Count(n => n + shift >= 40 && n + shift <= 79);
+        //        if (playableNotes > maxPlayableNotes)
+        //        {
+        //            maxPlayableNotes = playableNotes;
+        //            bestShift = shift;
+        //        }
+        //    }
+
+        //    return bestShift;
+        //}
     }
 }
