@@ -22,6 +22,7 @@ const std::array<int, 16> g = { 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 
 const std::array<int, 16> b = { 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74 };
 const std::array<int, 16> high_e = { 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79 };
 HWND targetWindow = NULL;
+static std::vector<int> lastClickedPositions(6, 0);  // Track last clicked position for each string
 
 
 
@@ -188,46 +189,67 @@ void LoadSongFromFile(std::string filepath, std::vector<SoundEvent>& song) {
     //std::cout << "Number of notes out of range (< 40 or > 80): " << outOfRangeNotes << std::endl;  // This now gets omitted by the midi converter.
 }
 
-
-
-void playNotes(std::vector<float> notes) {
-    std::sort(notes.begin(), notes.end(), std::greater<float>());
+std::array<std::chrono::steady_clock::time_point, 6> lastStringUsageTime;
+void playNotes(const std::vector<float>& notes) {
+    std::vector<float> sortedNotes = notes;
+    std::sort(sortedNotes.begin(), sortedNotes.end(), std::greater<float>());
     std::vector<MouseClick> clicksToSend;
     std::vector<char> keysToPress;
-    std::vector<bool> stringUsed(6, false);  // Track which strings have been used
-    static std::vector<int> lastClickedPositions(6, 0);  // Track last clicked position for each string
+    std::vector<bool> stringUsed(6, false);
 
     RECT windowRect;
     GetClientRect(targetWindow, &windowRect);
     int windowWidth = windowRect.right - windowRect.left;
     int windowHeight = windowRect.bottom - windowRect.top;
 
-    for (float note : notes) {
+    auto currentTime = std::chrono::steady_clock::now();
+
+    // Helper function to find the best string to use
+    auto findBestString = [&](const std::array<int, 16>& stringNotes, int stringIndex, char key, int intNote) -> bool {
+        auto it = std::find(stringNotes.begin(), stringNotes.end(), intNote);
+        if (it != stringNotes.end() && !stringUsed[stringIndex]) {
+            int index = static_cast<int>(std::distance(stringNotes.begin(), it));
+            if (lastClickedPositions[stringIndex] != index) {
+                auto [clickX, clickY] = getClickPosition(windowWidth, windowHeight, stringIndex, index);
+                clicksToSend.push_back({ clickX, clickY, true });
+                lastClickedPositions[stringIndex] = index;
+            }
+            keysToPress.push_back(key);
+            stringUsed[stringIndex] = true;
+            lastStringUsageTime[stringIndex] = currentTime;
+            return true;
+        }
+        return false;
+    };
+
+    for (float note : sortedNotes) {
         int intNote = static_cast<int>(std::round(note));
 
-        auto checkString = [&](const std::array<int, 16>& stringNotes, int stringIndex, char key) {
-            auto it = std::find(stringNotes.begin(), stringNotes.end(), intNote);
-            if (it != stringNotes.end() && !stringUsed[stringIndex]) {
-                int index = static_cast<int>(std::distance(stringNotes.begin(), it));
-                if (lastClickedPositions[stringIndex] != index) {
-                    auto [clickX, clickY] = getClickPosition(windowWidth, windowHeight, stringIndex, index);
-                    clicksToSend.push_back({ clickX, clickY, true });
-                    lastClickedPositions[stringIndex] = index;
-                }
-                keysToPress.push_back(key);
-                stringUsed[stringIndex] = true;
-                return true;
+        // Create a vector of pairs: (string index, time since last use)
+        std::vector<std::pair<int, std::chrono::duration<double>>> stringCandidates;
+        for (int i = 0; i < 6; ++i) {
+            if (!stringUsed[i]) {
+                auto timeSinceLastUse = std::chrono::duration_cast<std::chrono::duration<double>>(currentTime - lastStringUsageTime[i]);
+                stringCandidates.emplace_back(i, timeSinceLastUse);
             }
-            return false;
-        };
+        }
 
-        bool noteMatched =
-            checkString(high_e, 5, 'y') ||
-            checkString(b, 4, 't') ||
-            checkString(g, 3, 'r') ||
-            checkString(d, 2, 'e') ||
-            checkString(a, 1, 'w') ||
-            checkString(low_e, 0, 'q');
+        // Sort candidates by time since last use (descending order)
+        std::sort(stringCandidates.begin(), stringCandidates.end(),
+            [](const auto& a, const auto& b) { return a.second > b.second; });
+
+        bool noteMatched = false;
+        for (const auto& [stringIndex, _] : stringCandidates) {
+            switch (stringIndex) {
+            case 5: noteMatched = findBestString(high_e, 5, 'y', intNote); break;
+            case 4: noteMatched = findBestString(b, 4, 't', intNote); break;
+            case 3: noteMatched = findBestString(g, 3, 'r', intNote); break;
+            case 2: noteMatched = findBestString(d, 2, 'e', intNote); break;
+            case 1: noteMatched = findBestString(a, 1, 'w', intNote); break;
+            case 0: noteMatched = findBestString(low_e, 0, 'q', intNote); break;
+            }
+            if (noteMatched) break;
+        }
 
         if (!noteMatched) {
             std::cout << "  No match found for note " << note << " (int: " << intNote << ")" << std::endl;
@@ -281,8 +303,6 @@ void PlaySong(std::string songFileName, bool& isPlaying) {
     int windowHeight = windowRect.bottom - windowRect.top;
 
 
-
-
     //clickThroughAllPositions(windowWidth, windowHeight);
 
     Sleep(300); // Initial delay
@@ -294,6 +314,10 @@ void PlaySong(std::string songFileName, bool& isPlaying) {
     clicksToSend.push_back({ clickX, clickY, true });
     sendMultipleClicks(clicksToSend, 1, true);
 
+    for (unsigned i = 0; i < 6; i++) { // Reset the clicked positions.
+        lastClickedPositions[i] = 0;
+    }
+
     auto startTime = std::chrono::high_resolution_clock::now();
 
     for (const auto& event : songData) {
@@ -301,13 +325,23 @@ void PlaySong(std::string songFileName, bool& isPlaying) {
         auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime).count();
 
         if (elapsedTime < event.timestampMS) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(event.timestampMS - elapsedTime));
+            long long sleepTime = event.timestampMS - elapsedTime;
+            const long long checkInterval = 100; // Check every 100ms
+
+            while (sleepTime > 0 && isPlaying) {
+                auto sleepDuration = (sleepTime < checkInterval) ? sleepTime : checkInterval;
+                std::this_thread::sleep_for(std::chrono::milliseconds(sleepDuration));
+                sleepTime -= sleepDuration;
+
+                if (!isPlaying) 
+                    return;
+                
+            }
         }
         if (!isPlaying)
-            break;
+            return;
         playNotes(event.notes);
     }
     isPlaying = false; // when finished the song set not playing.
     return;
-
 }
