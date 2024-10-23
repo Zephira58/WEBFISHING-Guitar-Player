@@ -1,496 +1,798 @@
 // The UI was 99% AI generated.
-
-#include <windows.h>
-#include <commctrl.h>
-#include <dwmapi.h>
-#include <string>
-#include <vector>
+#include <wx/wx.h>
+#include <wx/listbox.h>
+#include <wx/scrolbar.h>
+#include <wx/graphics.h>
+#include <wx/dcbuffer.h>
 #include <filesystem>
+#include <vector>
+#include <string>
+#include <thread>
 #include "PlayerFunctionality.h"
+#include "resource.h"
+#include "VersionNum.h"
 
-
-#pragma comment(lib, "comctl32.lib")
+#ifdef __WXMSW__
+#include <wx/msw/private.h>
+#include <windows.h>
+#include <dwmapi.h>
 #pragma comment(lib, "dwmapi.lib")
+#endif
 
-// Global variables
-HDC hdcMem = NULL;
-HBITMAP hbmMem = NULL;
-HBITMAP hbmOld = NULL;
-HWND hList, hPlayButton, hStopButton;
-std::vector<std::string> files;
-HFONT hFont;
-HBRUSH hBackgroundBrush, hButtonBrush, hButtonHoverBrush, hListBorderBrush;
 
-// Colors
-#define COLOR_BACKGROUND RGB(30, 30, 30)
-#define COLOR_TEXT RGB(200, 200, 200)
-#define COLOR_BUTTON RGB(60, 60, 60)
-#define COLOR_BUTTON_HOVER RGB(80, 80, 80)
-#define COLOR_LIST_BORDER RGB(100, 100, 100)
-#define COLOR_LIST_BACKGROUND RGB(40, 40, 40)
-
-// Function prototypes
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-void LoadSongs(const std::string& folder);
-void ResizeControls(HWND hwnd);
-void DrawButton(LPDRAWITEMSTRUCT lpDrawItem);
-LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-
-// Button IDs
-#define ID_LISTBOX 1
-#define ID_PLAY_BUTTON 2
-#define ID_STOP_BUTTON 3
-
-// Original ListBox procedure
-WNDPROC OriginalListBoxProc;
-bool isPlayingSong = false;
-std::thread songPlayerThread;
-std::string selectedSongFileName = "";
-
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
-{
-    // Initialize common controls
-    INITCOMMONCONTROLSEX icex;
-    icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-    icex.dwICC = ICC_LISTVIEW_CLASSES;
-    InitCommonControlsEx(&icex);
-
-    // Register the window class
-    const char CLASS_NAME[] = "Sample Window Class";
-
-    WNDCLASSA wc = {};
-    wc.lpfnWndProc = WindowProc;
-    wc.hInstance = hInstance;
-    wc.lpszClassName = CLASS_NAME;
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-
-    RegisterClassA(&wc);
-
-    // Create the window
-    HWND hwnd = CreateWindowExA(
-        0,                              // Optional window styles
-        CLASS_NAME,                     // Window class
-        "Guitar Player",                    // Window text
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, // Window style
-
-        // Size and position
-        CW_USEDEFAULT, CW_USEDEFAULT, 300, 450,
-
-        NULL,       // Parent window    
-        NULL,       // Menu
-        hInstance,  // Instance handle
-        NULL        // Additional application data
-    );
-
-    if (hwnd == NULL)
+class DarkPanel : public wxPanel {
+public:
+    DarkPanel(wxWindow* parent, wxWindowID id = wxID_ANY)
+        : wxPanel(parent, id)
     {
-        return 0;
+        SetBackgroundColour(wxColour(35, 35, 35));  // Slightly lighter than main background
+
+        Bind(wxEVT_PAINT, &DarkPanel::OnPaint, this);
     }
 
-    // Enable dark mode for the title bar
-    BOOL value = TRUE;
-    DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
-    // Pre-scroll the listbox
+private:
+    void OnPaint(wxPaintEvent& evt) {
+        wxPaintDC dc(this);
+        wxSize size = GetSize();
 
-    ShowWindow(hwnd, nCmdShow);
-    SendMessage(hList, WM_VSCROLL, SB_LINEDOWN, 0); // This is here to prevent some stupid flickering from non-styled text.
-    SendMessage(hList, WM_VSCROLL, SB_LINEUP, 0);
-    UpdateWindow(hwnd);
+        // Draw the border
+        dc.SetPen(wxPen(wxColour(60, 60, 60), 1));  // Subtle border color
+        dc.SetBrush(*wxTRANSPARENT_BRUSH);
+        dc.DrawRoundedRectangle(0, 0, size.GetWidth(), size.GetHeight(), 4);
+    }
+};
 
-    // Run the message loop
-    MSG msg = {};
-    while (GetMessage(&msg, NULL, 0, 0))
+class DarkListBox : public wxListBox {
+public:
+    DarkListBox(wxWindow* parent, wxWindowID id)
+        : wxListBox(parent, id, wxDefaultPosition, wxDefaultSize,
+            0, NULL, wxLB_SINGLE | wxNO_BORDER | wxLB_NO_SB)
     {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
+        SetBackgroundColour(wxColour(40, 40, 40));
+        SetForegroundColour(wxColour(200, 200, 200));
+
+
+
+        Bind(wxEVT_MOUSEWHEEL, &DarkListBox::OnMouseWheel, this);
     }
 
-    return 0;
-}
+protected:
+    void OnMouseWheel(wxMouseEvent& event) {
+        int nScrollLines = 3;
+        if (event.GetWheelRotation() > 0) {
+            for (int i = 0; i < nScrollLines; i++) {
+                ScrollLines(-1);
+            }
+        }
+        else {
+            for (int i = 0; i < nScrollLines; i++) {
+                ScrollLines(1);
+            }
+        }
+    }
+};
+class MainFrame;
 
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-    switch (uMsg)
+// Custom Button with dark theme
+class DarkButton : public wxButton {
+public:
+    DarkButton(wxWindow* parent, wxWindowID id, const wxString& label)
+        : wxButton(parent, id, label, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE | wxNO_BORDER)
+        , m_isHovered(false)
+        , m_isPressed(false)
+        , m_cornerRadius(6)
     {
-    case WM_CREATE:
+        SetBackgroundStyle(wxBG_STYLE_PAINT);
+        SetBackgroundColour(wxColour(60, 60, 60));
+        SetForegroundColour(wxColour(200, 200, 200));
+
+        // Bind all relevant events
+        Bind(wxEVT_PAINT, &DarkButton::OnPaint, this);
+        Bind(wxEVT_ENTER_WINDOW, &DarkButton::OnEnter, this);
+        Bind(wxEVT_LEAVE_WINDOW, &DarkButton::OnLeave, this);
+        Bind(wxEVT_LEFT_DOWN, &DarkButton::OnMouseDown, this);
+        Bind(wxEVT_LEFT_UP, &DarkButton::OnMouseUp, this);
+        Bind(wxEVT_ERASE_BACKGROUND, &DarkButton::OnEraseBackground, this);
+        Bind(wxEVT_BUTTON, &DarkButton::OnButtonClick, this);
+
+        SetMinSize(wxSize(60, 30));
+    }
+
+    void ForceRefresh() {
+        m_isPressed = false;
+        m_isHovered = false;
+        Refresh(false); 
+        Update();
+    }
+
+protected:
+    void OnEraseBackground(wxEraseEvent& event) {
+        // Do nothing to prevent flickering
+    }
+
+    void OnPaint(wxPaintEvent& event) {
+        wxBufferedPaintDC dc(this);
+        wxSize size = GetSize();
+
+        wxGraphicsContext* gc = wxGraphicsContext::Create(dc);
+        if (gc) {
+            // Clear the background
+            gc->SetBrush(GetParent()->GetBackgroundColour());
+            gc->SetPen(*wxTRANSPARENT_PEN);
+            gc->DrawRectangle(0, 0, size.GetWidth(), size.GetHeight());
+
+            // Determine button color based on all states
+            wxColour bgColor;
+            if (GetBackgroundColour() == wxColour(147, 112, 219)) {
+                // Special color for selected speed buttons
+                if (m_isPressed) {
+                    bgColor = wxColour(137, 102, 209); // Darker when pressed
+                }
+                else if (m_isHovered) {
+                    bgColor = wxColour(157, 122, 229); // Lighter when hovered
+                }
+                else {
+                    bgColor = wxColour(147, 112, 219); // Normal
+                }
+            }
+            else {
+                // Regular button colors
+                if (m_isPressed) {
+                    bgColor = wxColour(50, 50, 50); // Darker when pressed
+                }
+                else if (m_isHovered) {
+                    bgColor = wxColour(80, 80, 80); // Lighter when hovered
+                }
+                else {
+                    bgColor = wxColour(60, 60, 60); // Normal
+                }
+            }
+
+            // Draw the rounded button
+            gc->SetBrush(wxBrush(bgColor));
+            gc->SetPen(*wxTRANSPARENT_PEN);
+            wxGraphicsPath path = gc->CreatePath();
+            path.AddRoundedRectangle(0, 0, size.GetWidth(), size.GetHeight(), m_cornerRadius);
+            gc->FillPath(path);
+
+            // Draw text
+            gc->SetFont(GetFont(), GetForegroundColour());
+            wxString label = GetLabel();
+            double textWidth, textHeight;
+            gc->GetTextExtent(label, &textWidth, &textHeight);
+
+            double x = (size.GetWidth() - textWidth) / 2;
+            double y = (size.GetHeight() - textHeight) / 2;
+            // Slight offset when pressed for a "pressed" effect
+            if (m_isPressed) {
+                x += 1;
+                y += 1;
+            }
+            gc->DrawText(label, x, y);
+
+            delete gc;
+        }
+    }
+
+    void OnMouseDown(wxMouseEvent& event) {
+        m_isPressed = true;
+        Refresh();
+        event.Skip();
+    }
+
+    void OnMouseUp(wxMouseEvent& event) {
+        m_isPressed = false;
+        Refresh();
+        event.Skip();
+    }
+
+    void OnButtonClick(wxCommandEvent& event) {
+        RefreshAllButtonsInWindow(GetParent());
+        event.Skip();
+    }
+
+    void OnEnter(wxMouseEvent& event) {
+        m_isHovered = true;
+        Refresh();
+        event.Skip();
+    }
+
+    void OnLeave(wxMouseEvent& event) {
+        m_isHovered = false;
+        m_isPressed = false;  // Reset pressed state when mouse leaves
+        Refresh();
+        event.Skip();
+    }
+
+private:
+    void RefreshAllButtonsInWindow(wxWindow* window) {
+        // Refresh buttons in the current window
+        wxWindowList& children = window->GetChildren();
+        for (wxWindow* child : children) {
+            DarkButton* button = dynamic_cast<DarkButton*>(child);
+            if (button) {
+                button->ForceRefresh();
+            }
+            // Recursively check children windows
+            RefreshAllButtonsInWindow(child);
+        }
+    }
+
+    bool m_isHovered;
+    bool m_isPressed;
+    int m_cornerRadius;
+};
+
+class CustomProgressBar;
+wxDEFINE_EVENT(wxEVT_PROGRESS_SEEK, wxCommandEvent);
+
+
+
+// Custom progress bar class
+class CustomProgressBar : public wxControl {
+public:
+    CustomProgressBar(wxWindow* parent, wxWindowID id, int range = 100)
+        : wxControl(parent, id, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE)
+        , m_range(range)
+        , m_value(0)
+        , m_isHovering(false)
     {
-        // Create brushes
-        hBackgroundBrush = CreateSolidBrush(COLOR_BACKGROUND);
-        hButtonBrush = CreateSolidBrush(COLOR_BUTTON);
-        hButtonHoverBrush = CreateSolidBrush(COLOR_BUTTON_HOVER);
-        hListBorderBrush = CreateSolidBrush(COLOR_LIST_BORDER);
+        SetBackgroundColour(wxColour(40, 40, 40));
+        SetMinSize(wxSize(-1, 12));
 
-        // Create a nicer font
-        hFont = CreateFontA(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-            ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
+        Bind(wxEVT_PAINT, &CustomProgressBar::OnPaint, this);
+        Bind(wxEVT_LEFT_DOWN, &CustomProgressBar::OnMouseClick, this);
+        Bind(wxEVT_MOTION, &CustomProgressBar::OnMouseMove, this);
+        Bind(wxEVT_ENTER_WINDOW, &CustomProgressBar::OnMouseEnter, this);
+        Bind(wxEVT_LEAVE_WINDOW, &CustomProgressBar::OnMouseLeave, this);
 
-        // Create listbox (removed WS_VSCROLL style)
-        hList = CreateWindowExA(
-            0,
-            "LISTBOX",
-            "",
-            WS_CHILD | WS_VISIBLE | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT,
-            10, 10, 260, 410,
-            hwnd,
-            (HMENU)ID_LISTBOX,
-            (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE),
-            NULL);
+        // Create cursor
+        SetCursor(wxCursor(wxCURSOR_HAND));
+    }
+
+    void SetValue(int value) {
+        m_value = value;
+        Refresh();
+    }
+
+    void SetRange(int range) {
+        m_range = range;
+        Refresh();
+    }
+
+    wxDECLARE_EVENT_TABLE();
+    wxDECLARE_DYNAMIC_CLASS(CustomProgressBar);
+
+private:
+    void OnPaint(wxPaintEvent& evt) {
+        wxPaintDC dc(this);
+        wxSize size = GetSize();
+
+        // Draw background
+        dc.SetBrush(wxBrush(GetBackgroundColour()));
+        dc.SetPen(*wxTRANSPARENT_PEN);
+        dc.DrawRectangle(0, 0, size.GetWidth(), size.GetHeight());
+
+        if (m_range > 0) {
+            // Calculate progress width
+            int progressWidth = (size.GetWidth() * m_value) / m_range;
+
+            // Create gradient colors
+            wxColour startColor(147, 112, 219);
+            wxColour endColor(122, 93, 182);
+
+            if (m_isHovering) {
+                // Brighten colors when hovering
+                startColor = startColor.ChangeLightness(110);
+                endColor = endColor.ChangeLightness(110);
+            }
+
+            // Draw progress with gradient
+            if (progressWidth > 0) {
+                wxRect progressRect(0, 0, progressWidth, size.GetHeight());
+                dc.GradientFillLinear(progressRect, startColor, endColor, wxEAST);
+            }
+
+            // Draw hover position indicator
+            if (m_isHovering) {
+                dc.SetPen(wxPen(wxColour(255, 255, 255, 180), 2));
+                dc.DrawLine(m_hoverX, 0, m_hoverX, size.GetHeight());
+            }
+        }
+    }
+
+    void OnMouseClick(wxMouseEvent& event) {
+        if (m_range > 0) {
+            int newValue = (event.GetX() * m_range) / GetSize().GetWidth();
+            newValue = wxMin(wxMax(newValue, 0), m_range);
+
+            // Create and send a custom seek event
+            wxCommandEvent seekEvent(wxEVT_COMMAND_BUTTON_CLICKED, GetId());
+            seekEvent.SetInt(newValue);
+            seekEvent.SetEventObject(this);
+            ProcessEvent(seekEvent);
+        }
+    }
+
+    void OnMouseMove(wxMouseEvent& event) {
+        if (m_isHovering) {
+            m_hoverX = event.GetX();
+            Refresh();
+        }
+    }
+
+    void OnMouseEnter(wxMouseEvent& event) {
+        m_isHovering = true;
+        m_hoverX = event.GetX();
+        Refresh();
+    }
+
+    void OnMouseLeave(wxMouseEvent& event) {
+        m_isHovering = false;
+        Refresh();
+    }
+
+    int m_range;
+    int m_value;
+    bool m_isHovering;
+    int m_hoverX;
+};
+
+IMPLEMENT_CLASS(CustomProgressBar, wxControl)
+wxBEGIN_EVENT_TABLE(CustomProgressBar, wxControl)
+EVT_PAINT(CustomProgressBar::OnPaint)
+EVT_LEFT_DOWN(CustomProgressBar::OnMouseClick)
+EVT_MOTION(CustomProgressBar::OnMouseMove)
+EVT_ENTER_WINDOW(CustomProgressBar::OnMouseEnter)
+EVT_LEAVE_WINDOW(CustomProgressBar::OnMouseLeave)
+wxEND_EVENT_TABLE()
+
+class DarkSearchBox : public wxTextCtrl {
+public:
+    DarkSearchBox(wxWindow* parent, wxWindowID id)
+        : wxTextCtrl(parent, id, wxEmptyString, wxDefaultPosition, wxDefaultSize,
+            wxTE_PROCESS_ENTER | wxBORDER_NONE)
+    {
+        SetBackgroundColour(wxColour(50, 50, 50));
+        SetForegroundColour(wxColour(200, 200, 200));
+
+        // Set placeholder text color
+        SetHint("Search songs...");
+
+        // Custom font
+        wxFont customFont(9, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL,
+            wxFONTWEIGHT_NORMAL, false, "Segoe UI");
+        SetFont(customFont);
+    }
+};
+
+
+class MainFrame : public wxFrame {
+public:
+    MainFrame() : wxFrame(nullptr, wxID_ANY, "Guitar Player v" + std::string(VERSIONSTR),
+        wxDefaultPosition, wxSize(300, 500),
+        wxMINIMIZE_BOX | wxSYSTEM_MENU | wxCAPTION | wxCLOSE_BOX | wxCLIP_CHILDREN),
+        isPlayingSong(false), isPaused(false), currentProgress(0)
+    {
+        // Enable dark title bar for Windows
+#ifdef __WXMSW__
+        HWND hwnd = (HWND)GetHandle();
+        if (hwnd) { // Enable dark mode for title bar
+            BOOL value = TRUE;
+            DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
+            HICON hIcon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_ICON1));
+            if (hIcon)
+            {
+                // Set the small icon (16x16)
+                SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
+                // Set the big icon (32x32)
+                SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+            }
+
+
+        }
+#endif
+
+        SetBackgroundColour(wxColour(30, 30, 30));
+
+        // Create main sizer
+        wxBoxSizer* mainSizer = new wxBoxSizer(wxVERTICAL);
 
 
 
-        // Set colors for listbox
-        SendMessage(hList, LB_SETCURSEL, (WPARAM)-1, 0);
-        SendMessage(hList, LB_SETSEL, FALSE, -1);
+        DarkPanel* groupPanelSongs = new DarkPanel(this);
+        wxBoxSizer* groupSizerSongs = new wxBoxSizer(wxVERTICAL);
 
-        // Subclass the listbox to customize its appearance
-        OriginalListBoxProc = (WNDPROC)SetWindowLongPtr(hList, GWLP_WNDPROC, (LONG_PTR)ListBoxProc);
-
-        // Create Play button
-        hPlayButton = CreateWindowExA(
-            0,
-            "BUTTON",
-            "Play",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            10, 370, 100, 30,
-            hwnd,
-            (HMENU)ID_PLAY_BUTTON,
-            (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE),
-            NULL);
-
-        // Create Stop button
-        hStopButton = CreateWindowExA(
-            0,
-            "BUTTON",
-            "Stop",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            170, 370, 100, 30,
-            hwnd,
-            (HMENU)ID_STOP_BUTTON,
-            (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE),
-            NULL);
-
-        // Apply the font to all controls
-        SendMessage(hList, WM_SETFONT, (WPARAM)hFont, TRUE);
-        SendMessage(hPlayButton, WM_SETFONT, (WPARAM)hFont, TRUE);
-        SendMessage(hStopButton, WM_SETFONT, (WPARAM)hFont, TRUE);
+        searchBox = new DarkSearchBox(groupPanelSongs, wxID_ANY);
+        listBox = new DarkListBox(groupPanelSongs, wxID_ANY);
 
         LoadSongs("songs");
 
-        for (const auto& file : files)
-        {
-            SendMessageA(hList, LB_ADDSTRING, 0, (LPARAM)file.c_str());
+        groupSizerSongs->Add(searchBox, 0, wxEXPAND | wxALL, 10);
+        groupSizerSongs->Add(listBox, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
+        groupPanelSongs->SetSizer(groupSizerSongs);
+        mainSizer->Add(groupPanelSongs, 1, wxEXPAND | wxALL, 10);
+
+
+        
+
+        DarkPanel* playbackPanel = new DarkPanel(this);
+        wxBoxSizer* playbackSizer = new wxBoxSizer(wxVERTICAL);
+
+
+        currentSongLabel = new wxStaticText(playbackPanel, wxID_ANY, "No song selected");
+        currentSongLabel->SetForegroundColour(wxColour(200, 200, 200));
+        //currentSongLabel->SetWindowStyle(wxALIGN_CENTER_HORIZONTAL);
+
+        progressBar = new CustomProgressBar(playbackPanel, wxID_ANY);
+        timeLabel = new wxStaticText(playbackPanel, wxID_ANY, "0:00 / 0:00");
+        timeLabel->SetForegroundColour(wxColour(200, 200, 200));
+
+
+
+        wxBoxSizer* buttonSizer = new wxBoxSizer(wxHORIZONTAL);
+        playButton = new DarkButton(playbackPanel, wxID_ANY, "Play");
+        pauseButton = new DarkButton(playbackPanel, wxID_ANY, "Pause");
+        stopButton = new DarkButton(playbackPanel, wxID_ANY, "Stop");
+
+        buttonSizer->Add(playButton, 1, wxRIGHT, 5);
+        buttonSizer->Add(pauseButton, 1, wxLEFT | wxRIGHT, 5);
+        buttonSizer->Add(stopButton, 1, wxLEFT, 5);
+
+        // Create speed controls
+        CreateSpeedControls(playbackPanel);  // Modified to take parent parameter
+
+
+        playbackSizer->Add(currentSongLabel, 0, wxEXPAND | wxALL, 10);
+        playbackSizer->Add(progressBar, 0, wxEXPAND | wxLEFT | wxRIGHT, 10);
+        playbackSizer->Add(timeLabel, 0, wxALIGN_CENTER | wxALL, 5);
+        playbackSizer->Add(buttonSizer, 0, wxEXPAND | wxALL, 10);
+        playbackSizer->Add(speedSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
+
+        playbackPanel->SetSizer(playbackSizer);
+        mainSizer->Add(playbackPanel, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
+
+        SetSizer(mainSizer);
+
+        // Bind events
+        searchBox->Bind(wxEVT_TEXT, &MainFrame::OnSearchText, this);
+        searchBox->Bind(wxEVT_TEXT_ENTER, &MainFrame::OnSearchEnter, this);
+        playButton->Bind(wxEVT_BUTTON, &MainFrame::OnPlay, this);
+        pauseButton->Bind(wxEVT_BUTTON, &MainFrame::OnPause, this);
+        stopButton->Bind(wxEVT_BUTTON, &MainFrame::OnStop, this);
+        listBox->Bind(wxEVT_LISTBOX, &MainFrame::OnSongSelect, this);
+        progressBar->Bind(wxEVT_COMMAND_BUTTON_CLICKED, &MainFrame::OnSeek, this);
+
+        // Create timer for progress updates
+        progressTimer = new wxTimer(this);
+        Bind(wxEVT_TIMER, &MainFrame::OnProgressTimer, this);
+
+        // Set custom font
+        wxFont customFont(9, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL,
+            wxFONTWEIGHT_NORMAL, false, "Segoe UI");
+        listBox->SetFont(customFont);
+        playButton->SetFont(customFont);
+        pauseButton->SetFont(customFont);
+        stopButton->SetFont(customFont);
+        timeLabel->SetFont(customFont);
+        currentSongLabel->SetFont(customFont);
+
+        // Bind the close event
+        Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnClose, this);
+
+        // Initialize button states
+        UpdateButtonStates();
+    }
+
+    ~MainFrame() {
+        StopPlayback();
+        delete progressTimer;
+    }
+
+    void RefreshAllButtons() {
+        // Refresh all buttons in the frame and its children
+        RefreshButtonsInWindow(this);
+    }
+
+private:
+    void RefreshButtonsInWindow(wxWindow* window) {
+        // Refresh buttons in the current window
+        wxWindowList& children = window->GetChildren();
+        for (wxWindow* child : children) {
+            // Check if the child is a DarkButton
+            DarkButton* button = dynamic_cast<DarkButton*>(child);
+            if (button) {
+                button->ForceRefresh();
+            }
+            // Recursively check children windows
+            RefreshButtonsInWindow(child);
         }
     }
-    return 0;
 
-    case WM_SIZE:
-        ResizeControls(hwnd);
-        return 0;
+    void CreateSpeedControls(wxWindow* parent) {
+        speedSizer = new wxBoxSizer(wxHORIZONTAL);
 
-    case WM_CTLCOLORLISTBOX:
-    {
-        return (LRESULT)GetStockObject(NULL_BRUSH);
+        std::vector<double> speeds = { 0.5, 0.75, 1.0, 1.25, 1.5 };
+        for (size_t i = 0; i < speeds.size(); i++) {
+            double speed = speeds[i];
+            wxString label = wxString::Format("%.2fx", speed);
+            DarkButton* speedBtn = new DarkButton(parent, wxID_ANY, label);
+
+            speedBtn->SetMinSize(wxSize(41, 25));
+
+            if (speed == 1.0) {
+                speedBtn->SetBackgroundColour(wxColour(147, 112, 219));
+            }
+
+            speedBtn->Bind(wxEVT_BUTTON, [this, speed, speedBtn](wxCommandEvent& event) {
+                OnSpeedChange(speed, speedBtn);
+                });
+
+            // Add first button
+            if (i == 0) {
+                speedSizer->Add(speedBtn, 0, wxRIGHT, 5);
+            }
+            // Add middle buttons
+            else if (i < speeds.size() - 1) {
+                speedSizer->Add(speedBtn, 0, wxLEFT | wxRIGHT, 5);
+            }
+            // Add last button
+            else {
+                speedSizer->Add(speedBtn, 0, wxLEFT, 5);
+            }
+
+            speedButtons.push_back(speedBtn);
+        }
     }
 
-    case WM_DRAWITEM:
-        DrawButton((LPDRAWITEMSTRUCT)lParam);
-        return TRUE;
+    void OnSpeedChange(double newSpeed, DarkButton* clickedButton) {
+        playbackSpeed = newSpeed;
 
-    case WM_COMMAND:
-        switch (LOWORD(wParam))
-        {
-        case ID_LISTBOX:
-            if (HIWORD(wParam) == LBN_SELCHANGE)
-            {
-                int selectedIndex = SendMessage(hList, LB_GETCURSEL, 0, 0);
-                if (selectedIndex != LB_ERR)
-                {
-                    char selectedFile[MAX_PATH];
-                    SendMessageA(hList, LB_GETTEXT, selectedIndex, (LPARAM)selectedFile);
-                    UpdateWindow(hwnd);
-                    selectedSongFileName = selectedFile;
-                    //MessageBoxA(hwnd, selectedFile, "Selected Song", MB_OK);
-                }
+        // Update button appearances
+        for (DarkButton* btn : speedButtons) {
+            if (btn == clickedButton) {
+                btn->SetBackgroundColour(wxColour(147, 112, 219));
             }
-            break;
-        case ID_PLAY_BUTTON:
-            if (selectedSongFileName != "" && isPlayingSong == false) {
+            else {
+                btn->SetBackgroundColour(wxColour(60, 60, 60));
+            }
+            btn->Refresh();
+        }
+        RefreshAllButtons();
+    }
+
+    void OnSeek(wxCommandEvent& event) {
+        if (isPlayingSong && totalDuration > 0) {
+            int seekPercentage = event.GetInt();
+            int seekPosition = (seekPercentage * totalDuration) / 100;
+
+            // Set seeking flag and update progress
+            isSeeking = true;
+            currentProgress = seekPosition;
+
+            // Update UI immediately
+            progressBar->SetValue(seekPercentage);
+
+            int currentSeconds = currentProgress / 1000;
+            int totalSeconds = totalDuration / 1000;
+            wxString timeStr = wxString::Format("%d:%02d / %d:%02d",
+                currentSeconds / 60, currentSeconds % 60,
+                totalSeconds / 60, totalSeconds % 60);
+            timeLabel->SetLabel(timeStr);
+        }
+    }
+
+
+    void FilterSongs(const wxString& searchTerm) {
+        listBox->Clear();
+        wxString lowerSearchTerm = searchTerm.Lower();
+
+        for (const wxString& song : allSongs) {
+            if (song.Lower().Contains(lowerSearchTerm)) {
+                listBox->Append(song);
+            }
+        }
+    }
+
+    void OnSearchText(wxCommandEvent& event) {
+        FilterSongs(searchBox->GetValue());
+    }
+
+    void OnSearchEnter(wxCommandEvent& event) {
+        FilterSongs(searchBox->GetValue());
+
+        // If there's exactly one match, select it
+        if (listBox->GetCount() == 1) {
+            listBox->SetSelection(0);
+            wxCommandEvent selEvent(wxEVT_LISTBOX);
+            selEvent.SetInt(0);
+            OnSongSelect(selEvent);
+        }
+    }
+
+    void LoadSongs(const std::string& folder) {
+        listBox->Clear();
+        allSongs.clear();
+
+        for (const auto& entry : std::filesystem::directory_iterator(folder)) {
+            if (entry.is_regular_file()) {
+                wxString songName = entry.path().filename().string();
+                listBox->Append(songName);
+                allSongs.push_back(songName);
+            }
+        }
+    }
+
+    void OnSongSelect(wxCommandEvent& event) {
+        // Update selected song filename
+        selectedSongFileName = listBox->GetString(listBox->GetSelection()).ToStdString();
+        event.Skip();
+    }
+
+    void OnPlay(wxCommandEvent& event) {
+        if (listBox->GetSelection() != wxNOT_FOUND) {
+            if (isPaused) {
+                // Resume playback
+                isPaused = false;
+                isPlayingSong = true;
+                UpdateButtonStates();
+                ResumePlayback();
+            }
+            else if (!isPlayingSong) {
+                // Start new playback
+                selectedSongFileName = listBox->GetString(listBox->GetSelection()).ToStdString();
+                currentSongLabel->SetLabel(selectedSongFileName); // Update label when starting playback
+                StopPlayback();
+                isPlayingSong = true;
+                isPaused = false;
+                currentProgress = 0;
+                progressTimer->Start(100); // Update every 100ms
                 if (songPlayerThread.joinable()) {
                     songPlayerThread.join();
                 }
-                isPlayingSong = true;
-                songPlayerThread = std::thread(PlaySong, selectedSongFileName, std::ref(isPlayingSong));
+                songPlayerThread = std::thread(PlaySong, selectedSongFileName, std::ref(isPlayingSong),
+                    std::ref(isPaused), std::ref(currentProgress), 
+                    std::ref(totalDuration), std::ref(playbackSpeed));
 
-                //MessageBoxA(hwnd, "Play button clicked", selectedSongFileName.c_str(), MB_OK);
+                UpdateButtonStates();
             }
-            break;
-        case ID_STOP_BUTTON:
+        }
+        RefreshAllButtons();
+    }
+
+    void OnPause(wxCommandEvent& event) {
+        if (isPlayingSong && !isPaused) {
+            isPaused = true;
+            UpdateButtonStates();
+        }
+        RefreshAllButtons();
+    }
+
+    void OnStop(wxCommandEvent& event) {
+        StopPlayback();
+        currentProgress = 0;
+        progressBar->SetValue(0);
+        timeLabel->SetLabel("0:00 / 0:00");
+        currentSongLabel->SetLabel("No song selected");
+        UpdateButtonStates();
+        RefreshAllButtons();
+    }
+
+    void StopPlayback() {
+        if (isPlayingSong) {
             isPlayingSong = false;
-            songPlayerThread.join();
-            //MessageBoxA(hwnd, "Stop button clicked", "Action", MB_OK);
-            break;
-        }
-        return 0;
-
-    case WM_DESTROY:
-        if (hdcMem)
-        {
-            SelectObject(hdcMem, hbmOld);
-            DeleteObject(hbmMem);
-            DeleteDC(hdcMem);
-        }
-        DeleteObject(hFont);
-        DeleteObject(hBackgroundBrush);
-        DeleteObject(hButtonBrush);
-        DeleteObject(hButtonHoverBrush);
-        DeleteObject(hListBorderBrush);
-        PostQuitMessage(0);
-        return 0;
-
-    case WM_ERASEBKGND:
-    {
-        HDC hdc = (HDC)wParam;
-        RECT rc;
-        GetClientRect(hwnd, &rc);
-        FillRect(hdc, &rc, hBackgroundBrush);
-        return 1;
-    }
-    }
-
-    return DefWindowProc(hwnd, uMsg, wParam, lParam);
-}
-
-void LoadSongs(const std::string& folder)
-{
-    for (const auto& entry : std::filesystem::directory_iterator(folder))
-    {
-        if (entry.is_regular_file())
-        {
-            files.push_back(entry.path().filename().string());
-        }
-    }
-}
-
-void ResizeControls(HWND hwnd)
-{
-    RECT rcClient;
-    GetClientRect(hwnd, &rcClient);
-
-    // Calculate new positions and sizes
-    int listWidth = rcClient.right - 20;
-    int listHeight = rcClient.bottom - 70; // Increased space between list and buttons
-    int buttonY = rcClient.bottom - 45; // Moved buttons up slightly
-    int buttonWidth = (listWidth - 10) / 2;
-
-    // Resize and move controls
-    SetWindowPos(hList, NULL, 10, 10, listWidth, listHeight, SWP_NOZORDER);
-    SetWindowPos(hPlayButton, NULL, 10, buttonY, buttonWidth, 35, SWP_NOZORDER);
-    SetWindowPos(hStopButton, NULL, 20 + buttonWidth, buttonY, buttonWidth, 35, SWP_NOZORDER);
-
-    // Force redraw
-    InvalidateRect(hwnd, NULL, TRUE);
-}
-
-void DrawButton(LPDRAWITEMSTRUCT lpDrawItem)
-{
-    HDC hDC = lpDrawItem->hDC;
-    RECT rcItem = lpDrawItem->rcItem;
-    UINT state = lpDrawItem->itemState;
-
-    // Set the background color
-    HBRUSH hBrush = (state & ODS_SELECTED) ? hButtonHoverBrush : hButtonBrush;
-    FillRect(hDC, &rcItem, hBrush);
-
-    // Draw the text
-    SetBkMode(hDC, TRANSPARENT);
-    SetTextColor(hDC, COLOR_TEXT);
-
-    char buttonText[256];
-    GetWindowTextA(lpDrawItem->hwndItem, buttonText, sizeof(buttonText));
-
-    DrawTextA(hDC, buttonText, -1, &rcItem, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-    // Draw the focus rectangle if the button has focus
-    if (state & ODS_FOCUS)
-    {
-        DrawFocusRect(hDC, &rcItem);
-    }
-}
-LRESULT CALLBACK ListBoxProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
-{
-    switch (uMsg)
-    {
-    case WM_NCCALCSIZE:
-        return 0;  // Prevent default non-client area painting
-    case WM_ERASEBKGND:
-        return 1; // Indicate that we'll handle background erasing in WM_PAINT
-
-    case WM_PAINT:
-    {
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
-
-        // Get the client rect
-        RECT clientRect;
-        GetClientRect(hwnd, &clientRect);
-
-        // Create a memory DC and bitmap for double buffering if not already created
-        if (!hdcMem)
-        {
-            hdcMem = CreateCompatibleDC(hdc);
-            hbmMem = CreateCompatibleBitmap(hdc, clientRect.right, clientRect.bottom);
-            hbmOld = (HBITMAP)SelectObject(hdcMem, hbmMem);
-        }
-
-        // Fill the background
-        FillRect(hdcMem, &clientRect, CreateSolidBrush(COLOR_LIST_BACKGROUND));
-
-        // Get the number of items and the top index
-        int itemCount = SendMessage(hwnd, LB_GETCOUNT, 0, 0);
-        int topIndex = SendMessage(hwnd, LB_GETTOPINDEX, 0, 0);
-
-        // Get item height
-        int itemHeight = SendMessage(hwnd, LB_GETITEMHEIGHT, 0, 0);
-
-        // Calculate how many items can be fully displayed
-        int visibleItems = (clientRect.bottom - clientRect.top) / itemHeight;
-
-        // Select our custom font and set text color
-        HFONT oldFont = (HFONT)SelectObject(hdcMem, hFont);
-        SetTextColor(hdcMem, COLOR_TEXT);
-        SetBkMode(hdcMem, TRANSPARENT);
-        // Get the selected index
-        int selectedIndex = SendMessage(hwnd, LB_GETCURSEL, 0, 0);
-
-        // Draw each fully visible item
-        for (int i = topIndex; i < min(itemCount, topIndex + visibleItems); i++)
-        {
-            RECT itemRect = clientRect;
-            itemRect.top = (i - topIndex) * itemHeight;
-            itemRect.bottom = itemRect.top + itemHeight;
-
-            // Skip drawing if the item is not fully visible
-            if (itemRect.bottom > clientRect.bottom)
-                break;
-
-            // Get item text
-            char buffer[256];
-            SendMessage(hwnd, LB_GETTEXT, i, (LPARAM)buffer);
-
-            // Draw selection background if this item is selected
-            if (i == selectedIndex)
-            {
-                FillRect(hdcMem, &itemRect, CreateSolidBrush(RGB(60, 60, 60))); // Darker background for selected item
+            isPaused = false;
+            if (songPlayerThread.joinable()) {
+                songPlayerThread.join();
             }
-
-            itemRect.left += 5;
-            itemRect.right -= 5;
-            // Draw item text
-            DrawTextA(hdcMem, buffer, -1, &itemRect, DT_SINGLELINE | DT_VCENTER | DT_LEFT);
+            progressTimer->Stop();
         }
-
-        // Draw the border
-        FrameRect(hdcMem, &clientRect, hListBorderBrush);
-
-        // Copy the memory DC to the window DC
-        BitBlt(hdc, 0, 0, clientRect.right, clientRect.bottom, hdcMem, 0, 0, SRCCOPY);
-
-        // Restore the old font
-        SelectObject(hdcMem, oldFont);
-
-        EndPaint(hwnd, &ps);
-        return 0;
-    }
-    case WM_LBUTTONDOWN:
-    case WM_LBUTTONDBLCLK:
-        // Handle mouse clicks to update selection
-        InvalidateRect(hwnd, NULL, FALSE);
-        break;
-
-
-
-    case WM_MOUSEWHEEL:
-    {
-        int zDelta = GET_WHEEL_DELTA_WPARAM(wParam);
-        int nScrollLines = 3; // You can adjust this value to change scroll speed
-        if (zDelta > 0)
-        {
-            // Scroll up
-            for (int i = 0; i < nScrollLines; i++)
-                SendMessage(hwnd, WM_VSCROLL, SB_LINEUP, 0);
-        }
-        else
-        {
-            // Scroll down
-            for (int i = 0; i < nScrollLines; i++)
-                SendMessage(hwnd, WM_VSCROLL, SB_LINEDOWN, 0);
-        }
-        InvalidateRect(hwnd, NULL, FALSE);
-        return 0;
     }
 
-    case WM_KEYDOWN:
-        switch (wParam)
-        {
-        case VK_UP:
-            SendMessage(hwnd, WM_VSCROLL, SB_LINEUP, 0);
-            return 0;
-        case VK_DOWN:
-            SendMessage(hwnd, WM_VSCROLL, SB_LINEDOWN, 0);
-            return 0;
-        case VK_PRIOR:  // Page Up
-            SendMessage(hwnd, WM_VSCROLL, SB_PAGEUP, 0);
-            return 0;
-        case VK_NEXT:   // Page Down
-            SendMessage(hwnd, WM_VSCROLL, SB_PAGEDOWN, 0);
-            return 0;
-        }
-        break;
-
-    case WM_VSCROLL:
-    {
-        int topIndex = SendMessage(hwnd, LB_GETTOPINDEX, 0, 0);
-        int itemCount = SendMessage(hwnd, LB_GETCOUNT, 0, 0);
-
-        switch (LOWORD(wParam))
-        {
-        case SB_LINEUP:
-            topIndex = max(topIndex - 1, 0);
-            break;
-        case SB_LINEDOWN:
-            topIndex = min(topIndex + 1, itemCount - 1);
-            break;
-        case SB_PAGEUP:
-        {
-            RECT clientRect;
-            GetClientRect(hwnd, &clientRect);
-            int itemHeight = SendMessage(hwnd, LB_GETITEMHEIGHT, 0, 0);
-            int visibleItems = (clientRect.bottom - clientRect.top) / itemHeight;
-            topIndex = max(topIndex - visibleItems, 0);
-        }
-        break;
-        case SB_PAGEDOWN:
-        {
-            RECT clientRect;
-            GetClientRect(hwnd, &clientRect);
-            int itemHeight = SendMessage(hwnd, LB_GETITEMHEIGHT, 0, 0);
-            int visibleItems = (clientRect.bottom - clientRect.top) / itemHeight;
-            topIndex = min(topIndex + visibleItems, itemCount - 1);
-        }
-        break;
-        case SB_THUMBPOSITION:
-        case SB_THUMBTRACK:
-            topIndex = HIWORD(wParam);
-            break;
-        }
-
-        SendMessage(hwnd, LB_SETTOPINDEX, topIndex, 0);
-        InvalidateRect(hwnd, NULL, FALSE);
-        UpdateWindow(hwnd);
-
-        return 0;
+    void ResumePlayback() {
+        // Implementation for resuming playback
     }
+
+    // Update the OnProgressTimer function
+    void OnProgressTimer(wxTimerEvent& event) {
+        if (isPlayingSong && !isPaused && totalDuration > 0) {
+            int progressPercent = (currentProgress * 100) / totalDuration;
+            progressBar->SetValue(progressPercent);
+
+            // Update time label
+            int currentSeconds = currentProgress / 1000;
+            int totalSeconds = totalDuration / 1000;
+            wxString timeStr = wxString::Format("%d:%02d / %d:%02d",
+                currentSeconds / 60, currentSeconds % 60,
+                totalSeconds / 60, totalSeconds % 60);
+            timeLabel->SetLabel(timeStr);
+        }
     }
-    return CallWindowProc(OriginalListBoxProc, hwnd, uMsg, wParam, lParam);
-}
+
+    void UpdateButtonStates() {
+        // Update enabled states
+        playButton->Enable(!isPlayingSong || isPaused);
+        pauseButton->Enable(isPlayingSong && !isPaused);
+        stopButton->Enable(isPlayingSong || isPaused);
+
+        // Update button colors based on current state
+        wxColour activeColor(147, 112, 219);    // Purple highlight color
+        wxColour inactiveColor(60, 60, 60);     // Regular button color
+
+        if (isPlayingSong && !isPaused) {
+            // Playing state
+            playButton->SetBackgroundColour(activeColor);
+            pauseButton->SetBackgroundColour(inactiveColor);
+        }
+        else if (isPlayingSong && isPaused) {
+            // Paused state
+            pauseButton->SetBackgroundColour(activeColor);
+            playButton->SetBackgroundColour(inactiveColor);
+        }
+        else {
+            // Stopped state
+            playButton->SetBackgroundColour(inactiveColor);
+            pauseButton->SetBackgroundColour(inactiveColor);
+        }
+
+        stopButton->SetBackgroundColour(inactiveColor);
+
+        // Force refresh all buttons to ensure proper appearance
+        playButton->ForceRefresh();
+        pauseButton->ForceRefresh();
+        stopButton->ForceRefresh();
+    }
+
+    void OnClose(wxCloseEvent& event) {
+        // Ensure clean shutdown
+        StopPlayback();
+        event.Skip();
+    }
+    DarkListBox* listBox;
+    DarkButton* playButton;
+    DarkButton* pauseButton;
+    DarkButton* stopButton;
+    CustomProgressBar* progressBar;
+    wxStaticText* timeLabel;
+    wxTimer* progressTimer;
+    wxStaticText* currentSongLabel;
+    wxBoxSizer* speedSizer;
+    std::vector<DarkButton*> speedButtons;
+    DarkSearchBox* searchBox;
+    std::vector<wxString> allSongs;
+
+    std::thread songPlayerThread;
+    bool isPlayingSong;
+    bool isPaused;
+    bool isSeeking;
+    std::string selectedSongFileName;
+    int currentProgress;
+    int totalDuration;
+    double playbackSpeed = 1.0;
+
+};
+
+class MusicPlayerApp : public wxApp {
+public:
+    bool OnInit() {
+        // Enable dark mode for the entire application (Windows)
+#ifdef __WXMSW__
+        typedef BOOL(WINAPI* SetPreferredAppMode)(INT);
+        HMODULE hUxtheme = LoadLibraryA("uxtheme.dll");
+        if (hUxtheme) {
+            SetPreferredAppMode SetAppMode =
+                (SetPreferredAppMode)GetProcAddress(hUxtheme, MAKEINTRESOURCEA(135));
+            if (SetAppMode) {
+                SetAppMode(2); // 2 = Force Dark Mode
+            }
+            FreeLibrary(hUxtheme);
+        }
+#endif
+
+        MainFrame* frame = new MainFrame();
+        frame->Show(true);
+        return true;
+    }
+};
+
+wxIMPLEMENT_APP(MusicPlayerApp);

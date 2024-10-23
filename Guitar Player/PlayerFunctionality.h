@@ -14,6 +14,8 @@
 #include <chrono>
 #include <thread>
 #include <algorithm>
+#include "WindowsUtility.h"
+#include "InputBlocker.h"
 
 const std::array<int, 16> low_e = { 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55 };
 const std::array<int, 16> a = { 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60 };
@@ -59,53 +61,6 @@ std::pair<int, int> getClickPosition(int windowWidth, int windowHeight, int x, i
 
     return { clickX, clickY };
 }
-
-
-void FindTargetWindow(DWORD processId) {
-    targetWindow = NULL;
-    EnumWindows([](HWND hWnd, LPARAM lParam) -> BOOL {
-        DWORD windowProcessId;
-    GetWindowThreadProcessId(hWnd, &windowProcessId);
-    if (windowProcessId == (DWORD)lParam) {
-        targetWindow = hWnd;
-        return FALSE;
-    }
-    return TRUE;
-        }, (LPARAM)processId);
-}
-
-HWND FindWindowByProcessName(const std::string& processName) {
-    HWND hwnd = NULL;
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot != INVALID_HANDLE_VALUE) {
-        PROCESSENTRY32 processEntry;
-        processEntry.dwSize = sizeof(processEntry);
-        if (Process32First(snapshot, &processEntry)) {
-            do {
-                std::string currentProcessName = processEntry.szExeFile;
-
-                // Convert both strings to lowercase for case-insensitive comparison
-                std::transform(currentProcessName.begin(), currentProcessName.end(), currentProcessName.begin(),
-                    [](unsigned char c) { return std::tolower(c); });
-                std::string lowerProcessName = processName;
-                std::transform(lowerProcessName.begin(), lowerProcessName.end(), lowerProcessName.begin(),
-                    [](unsigned char c) { return std::tolower(c); });
-
-                if (currentProcessName.find(lowerProcessName) != std::string::npos) {
-                    DWORD processId = processEntry.th32ProcessID;
-                    FindTargetWindow(processId);
-
-                    if (targetWindow != NULL) {
-                        break;
-                    }
-                }
-            } while (Process32Next(snapshot, &processEntry));
-        }
-        CloseHandle(snapshot);
-    }
-    return targetWindow;
-}
-
 
 void sendMultipleKeys(const std::vector<char>& keys, int sleepTime, bool down = false) {
     if (sleepTime != 0 || down == true)
@@ -166,6 +121,14 @@ std::vector<std::string> explode_midi(std::string const& s, char delim)
 void LoadSongFromFile(std::string filepath, std::vector<SoundEvent>& song) {
     song.clear();
     std::ifstream songFile(filepath);
+    if (!songFile.is_open()) {
+        WindowsUtility::showMessageBox(
+            "Failed to open song file: " + filepath,
+            "Error",
+            MB_OK | MB_ICONERROR
+        );
+        return;
+    }
     std::string tempLine;
     int outOfRangeNotes = 0;
 
@@ -285,63 +248,122 @@ void clickThroughAllPositions(int windowWidth, int windowHeight) {
     }
 }
 
-void PlaySong(std::string songFileName, bool& isPlaying) {
+void PlaySong(std::string songFileName, bool& isPlaying, bool& isPaused, int& currentProgress, int& totalDuration, double& playbackSpeed) {
     std::vector<SoundEvent> songData;
     std::string songPath = "songs\\" + songFileName;
     LoadSongFromFile(songPath, songData);
 
-    const std::string processName = "webfishing.exe"; // The name of the target executable
-    targetWindow = FindWindowByProcessName(processName);
-    if (targetWindow == NULL) {
-        std::cout << "Failed to find target window. Exiting." << std::endl;
+    if (!songData.empty()) {
+        totalDuration = songData.back().timestampMS;
+    }
+
+    const std::string processName = "webfishing.exe";
+    targetWindow = WindowsUtility::findWindowByProcessName(processName);
+    if (!WindowsUtility::isWindowValid(targetWindow)) {
+        WindowsUtility::showMessageBox("Failed to find target window.", "Error", MB_OK | MB_ICONERROR);
         return;
     }
 
-    RECT windowRect;
-    GetClientRect(targetWindow, &windowRect);
-    int windowWidth = windowRect.right - windowRect.left;
-    int windowHeight = windowRect.bottom - windowRect.top;
+    if (WindowsUtility::needsElevation(targetWindow)) {
+        WindowsUtility::elevateWithPrompt(
+            "Webfishing is running with elevated privileges.\n"
+            "Guitar Player needs to restart with administrator rights to be able to play.");
+        return;
+    }
 
-
-    //clickThroughAllPositions(windowWidth, windowHeight);
-
-    Sleep(300); // Initial delay
-
+    auto [windowWidth, windowHeight] = WindowsUtility::getWindowDimensions(targetWindow);
     auto [clickX, clickY] = getClickPosition(windowWidth, windowHeight, 5, 0);
     auto [clickX2, clickY2] = getClickPosition(windowWidth, windowHeight, 4, 0);
     clickX += (clickX - clickX2);
     std::vector<MouseClick> clicksToSend;
     clicksToSend.push_back({ clickX, clickY, true });
-    sendMultipleClicks(clicksToSend, 1, true);
-
+    sendMultipleClicks(clicksToSend, 1, true); // Reset Webfishing guitar
     for (unsigned i = 0; i < 6; i++) { // Reset the clicked positions.
         lastClickedPositions[i] = 0;
     }
+    Sleep(300);
 
-    auto startTime = std::chrono::high_resolution_clock::now();
+    int previousProgress = currentProgress;
+    double accumulatedTime = currentProgress;
+    auto lastUpdateTime = std::chrono::high_resolution_clock::now();
+    InputBlocker inputBlocker;
+    inputBlocker.Start(targetWindow);
+    while (isPlaying) {
+        // Handle pausing
+        if (isPaused) {
+            inputBlocker.Pause();
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            lastUpdateTime = std::chrono::high_resolution_clock::now();
+            continue;
+        }
+        else {
+            inputBlocker.Resume();
+        }
 
-    for (const auto& event : songData) {
-        auto currentTime = std::chrono::high_resolution_clock::now();
-        auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime).count();
+        auto now = std::chrono::high_resolution_clock::now();
+        auto realTimeDelta = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastUpdateTime).count();
 
-        if (elapsedTime < event.timestampMS) {
-            long long sleepTime = event.timestampMS - elapsedTime;
-            const long long checkInterval = 100; // Check every 100ms
+        // Check for seek operation
+        if (abs(currentProgress - previousProgress) > 100) {
+            accumulatedTime = currentProgress;
+            lastUpdateTime = now;
+        }
+        else {
+            accumulatedTime += realTimeDelta * playbackSpeed;
+            currentProgress = static_cast<int>(accumulatedTime);
+        }
 
-            while (sleepTime > 0 && isPlaying) {
-                auto sleepDuration = (sleepTime < checkInterval) ? sleepTime : checkInterval;
-                std::this_thread::sleep_for(std::chrono::milliseconds(sleepDuration));
-                sleepTime -= sleepDuration;
+        previousProgress = currentProgress;
+        lastUpdateTime = now;
 
-                if (!isPlaying) 
-                    return;
-                
+        // Find the next note to play
+        size_t nextIndex = 0;
+        for (; nextIndex < songData.size(); nextIndex++) {
+            if (songData[nextIndex].timestampMS > currentProgress) {
+                break;
             }
         }
-        if (!isPlaying)
-            return;
-        playNotes(event.notes);
+
+        if (nextIndex >= songData.size()) {
+            isPlaying = false;
+            break;
+        }
+
+        const auto& nextEvent = songData[nextIndex];
+        long long waitTime = static_cast<long long>((nextEvent.timestampMS - currentProgress) / playbackSpeed);
+
+        if (waitTime > 0) {
+            // Wait in small intervals to stay responsive
+            const long long checkInterval = 50;
+            const int seekThreshold = 100;
+            while (waitTime > 0 && isPlaying && !isPaused) {
+                auto sleepTime = std::min(waitTime, checkInterval);
+                std::this_thread::sleep_for(std::chrono::milliseconds(sleepTime));
+
+                now = std::chrono::high_resolution_clock::now();
+                realTimeDelta = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastUpdateTime).count();
+
+                // Check for seek during wait
+                if (abs(currentProgress - previousProgress) > seekThreshold) {
+                    // Update timing to match seek position
+                    accumulatedTime = currentProgress;
+                    lastUpdateTime = now;
+                    break;
+                }
+
+                accumulatedTime += realTimeDelta * playbackSpeed;
+                currentProgress = static_cast<int>(accumulatedTime);
+                lastUpdateTime = now;
+                previousProgress = currentProgress;
+
+                waitTime = static_cast<long long>((nextEvent.timestampMS - currentProgress) / playbackSpeed);
+            }
+        }
+
+        if (isPlaying && !isPaused && abs(currentProgress - nextEvent.timestampMS) < 100) {
+            playNotes(nextEvent.notes);
+        }
     }
-    isPlaying = false; // when finished the song set not playing.
-    return;
+    inputBlocker.Stop();
+    isPlaying = false;
 }
