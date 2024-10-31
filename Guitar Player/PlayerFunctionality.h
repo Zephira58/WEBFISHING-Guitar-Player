@@ -167,87 +167,58 @@ void playNotes(const std::vector<float>& notes) {
 
     auto currentTime = std::chrono::steady_clock::now();
 
-    // Helper struct to store possible positions for a note
-    struct StringPosition {
-        int stringIndex;
-        int fretPosition;
-        bool requiresPositionChange;
-    };
-
-    // Helper function to find all possible positions for a note
-    auto findAllPositions = [&](int intNote) -> std::vector<StringPosition> {
-        std::vector<StringPosition> positions;
-
-        // Array of string data for iteration
-        const std::array<std::pair<const std::array<int, 16>*, int>, 6> strings = {
-            std::make_pair(&high_e, 5),
-            std::make_pair(&b, 4),
-            std::make_pair(&g, 3),
-            std::make_pair(&d, 2),
-            std::make_pair(&a, 1),
-            std::make_pair(&low_e, 0)
-        };
-
-        for (const auto& [stringNotes, stringIndex] : strings) {
-            if (stringUsed[stringIndex]) continue;
-
-            auto it = std::find(stringNotes->begin(), stringNotes->end(), intNote);
-            if (it != stringNotes->end()) {
-                int fretPos = static_cast<int>(std::distance(stringNotes->begin(), it));
-                bool requiresChange = (lastClickedPositions[stringIndex] != fretPos);
-
-                positions.push_back({
-                    stringIndex,
-                    fretPos,
-                    requiresChange
-                    });
-            }
-        }
-        return positions;
-        };
-
-    // Process each note
-    for (float note : sortedNotes) {
-        int intNote = static_cast<int>(std::round(note));
-        auto positions = findAllPositions(intNote);
-
-        if (!positions.empty()) {
-            // First, try to find a position that doesn't require a change
-            auto noChangeIt = std::find_if(positions.begin(), positions.end(),
-                [](const StringPosition& pos) { return !pos.requiresPositionChange; });
-
-            // If no position without change is found, use the first available position
-            const auto& bestPos = (noChangeIt != positions.end()) ? *noChangeIt : positions[0];
-            int stringIndex = bestPos.stringIndex;
-
-            // Update tracking variables
-            if (bestPos.requiresPositionChange) {
-                auto [clickX, clickY] = getClickPosition(windowWidth, windowHeight, stringIndex, bestPos.fretPosition);
+    // Helper function to find the best string to use
+    auto findBestString = [&](const std::array<int, 16>& stringNotes, int stringIndex, char key, int intNote) -> bool {
+        auto it = std::find(stringNotes.begin(), stringNotes.end(), intNote);
+        if (it != stringNotes.end() && !stringUsed[stringIndex]) {
+            int index = static_cast<int>(std::distance(stringNotes.begin(), it));
+            if (lastClickedPositions[stringIndex] != index) {
+                auto [clickX, clickY] = getClickPosition(windowWidth, windowHeight, stringIndex, index);
                 clicksToSend.push_back({ clickX, clickY, true });
-                lastClickedPositions[stringIndex] = bestPos.fretPosition;
-            }
-
-            // Add appropriate key press
-            char key;
-            switch (stringIndex) {
-            case 0: key = 'q'; break;
-            case 1: key = 'w'; break;
-            case 2: key = 'e'; break;
-            case 3: key = 'r'; break;
-            case 4: key = 't'; break;
-            case 5: key = 'y'; break;
-            default: continue;
+                lastClickedPositions[stringIndex] = index;
             }
             keysToPress.push_back(key);
             stringUsed[stringIndex] = true;
             lastStringUsageTime[stringIndex] = currentTime;
+            return true;
         }
-        else {
+        return false;
+    };
+
+    for (float note : sortedNotes) {
+        int intNote = static_cast<int>(std::round(note));
+
+        // Create a vector of pairs: (string index, time since last use)
+        std::vector<std::pair<int, std::chrono::duration<double>>> stringCandidates;
+        for (int i = 0; i < 6; ++i) {
+            if (!stringUsed[i]) {
+                auto timeSinceLastUse = std::chrono::duration_cast<std::chrono::duration<double>>(currentTime - lastStringUsageTime[i]);
+                stringCandidates.emplace_back(i, timeSinceLastUse);
+            }
+        }
+
+        // Sort candidates by time since last use (descending order)
+        std::sort(stringCandidates.begin(), stringCandidates.end(),
+            [](const auto& a, const auto& b) { return a.second > b.second; });
+
+        bool noteMatched = false;
+        for (const auto& [stringIndex, _] : stringCandidates) {
+            switch (stringIndex) {
+            case 5: noteMatched = findBestString(high_e, 5, 'y', intNote); break;
+            case 4: noteMatched = findBestString(b, 4, 't', intNote); break;
+            case 3: noteMatched = findBestString(g, 3, 'r', intNote); break;
+            case 2: noteMatched = findBestString(d, 2, 'e', intNote); break;
+            case 1: noteMatched = findBestString(a, 1, 'w', intNote); break;
+            case 0: noteMatched = findBestString(low_e, 0, 'q', intNote); break;
+            }
+            if (noteMatched) break;
+        }
+
+        if (!noteMatched) {
             std::cout << "  No match found for note " << note << " (int: " << intNote << ")" << std::endl;
         }
     }
 
-    // Send all accumulated clicks and key presses
     if (!clicksToSend.empty()) {
         sendMultipleClicks(clicksToSend, 1, true);
     }
