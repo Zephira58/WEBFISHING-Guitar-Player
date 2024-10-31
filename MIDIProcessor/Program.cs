@@ -44,7 +44,12 @@ namespace miditotxt
 
         public static void ConvertMidiToText(string midiFilePath, string textFilePath, string statsFilePath)
         {
-            var midiFile = MidiFile.Read(midiFilePath);
+            var readingSettings = new ReadingSettings
+            {
+                InvalidMetaEventParameterValuePolicy = InvalidMetaEventParameterValuePolicy.SnapToLimits
+            };
+
+            var midiFile = MidiFile.Read(midiFilePath, readingSettings);
             var tempoMap = midiFile.GetTempoMap();
 
             List<SoundEvent> Song = new List<SoundEvent>();
@@ -116,6 +121,9 @@ namespace miditotxt
 
             // Print a simple progress message to console
             Console.WriteLine($"Converted: {Path.GetFileName(midiFilePath)}");
+
+            // Delete the MIDI file after successful conversion
+            File.Delete(midiFilePath);
         }
         public class ShiftParameters
         {

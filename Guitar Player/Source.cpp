@@ -11,6 +11,8 @@
 #include "PlayerFunctionality.h"
 #include "resource.h"
 #include "VersionNum.h"
+#include <wx/dir.h>
+#include <wx/filename.h>
 
 #ifdef __WXMSW__
 #include <wx/msw/private.h>
@@ -614,18 +616,53 @@ private:
         listBox->Clear();
         allSongs.clear();
 
-        for (const auto& entry : std::filesystem::directory_iterator(folder)) {
-            if (entry.is_regular_file()) {
-                wxString songName = entry.path().filename().string();
-                listBox->Append(songName);
-                allSongs.push_back(songName);
+        // Convert input path to wxString for proper Unicode handling
+        wxString folderPath = wxString::FromUTF8(folder);
+
+        if (!wxDirExists(folderPath)) {
+            wxMessageBox("Songs directory not found!", "Error",
+                wxOK | wxICON_ERROR);
+            return;
+        }
+
+        wxDir dir(folderPath);
+        if (!dir.IsOpened()) {
+            wxMessageBox("Could not open songs directory!", "Error",
+                wxOK | wxICON_ERROR);
+            return;
+        }
+
+        wxString filename;
+        bool cont = dir.GetFirst(&filename, wxEmptyString, wxDIR_FILES);
+        std::vector<wxString> songList;
+
+        // First collect all valid files
+        while (cont) {
+            wxString fullPath = wxString::FromUTF8(folder) + wxFILE_SEP_PATH + filename;
+
+            if (wxFileExists(fullPath)) {
+                songList.push_back(filename);
             }
+
+            cont = dir.GetNext(&filename);
+        }
+
+        // Sort the collected songs
+        std::sort(songList.begin(), songList.end());
+
+        // Add sorted songs to listbox and allSongs
+        for (const wxString& song : songList) {
+            listBox->Append(song);
+            allSongs.push_back(song);
         }
     }
 
     void OnSongSelect(wxCommandEvent& event) {
-        // Update selected song filename
-        selectedSongFileName = listBox->GetString(listBox->GetSelection()).ToStdString();
+        if (listBox->GetSelection() != wxNOT_FOUND) {
+            wxString songName = listBox->GetString(listBox->GetSelection());
+            // Convert to UTF-8 for filesystem operations
+            selectedSongFileName = songName.ToUTF8();
+        }
         event.Skip();
     }
 
