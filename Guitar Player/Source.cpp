@@ -398,17 +398,22 @@ public:
         // Create main sizer
         wxBoxSizer* mainSizer = new wxBoxSizer(wxVERTICAL);
 
-
-
         DarkPanel* groupPanelSongs = new DarkPanel(this);
         wxBoxSizer* groupSizerSongs = new wxBoxSizer(wxVERTICAL);
+        wxBoxSizer* searchSizer = new wxBoxSizer(wxHORIZONTAL);
 
         searchBox = new DarkSearchBox(groupPanelSongs, wxID_ANY);
+        refreshButton = new DarkButton(groupPanelSongs, wxID_ANY, "Refresh");
+
+        // Add search box and refresh button to the horizontal sizer
+        searchSizer->Add(searchBox, 1, wxEXPAND | wxRIGHT, 5);
+        searchSizer->Add(refreshButton, 0, wxEXPAND);
+
         listBox = new DarkListBox(groupPanelSongs, wxID_ANY);
 
         LoadSongs("songs");
 
-        groupSizerSongs->Add(searchBox, 0, wxEXPAND | wxALL, 10);
+        groupSizerSongs->Add(searchSizer, 0, wxEXPAND | wxALL, 10);
         groupSizerSongs->Add(listBox, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10);
         groupPanelSongs->SetSizer(groupSizerSongs);
         mainSizer->Add(groupPanelSongs, 1, wxEXPAND | wxALL, 10);
@@ -462,6 +467,7 @@ public:
         stopButton->Bind(wxEVT_BUTTON, &MainFrame::OnStop, this);
         listBox->Bind(wxEVT_LISTBOX, &MainFrame::OnSongSelect, this);
         progressBar->Bind(wxEVT_COMMAND_BUTTON_CLICKED, &MainFrame::OnSeek, this);
+        refreshButton->Bind(wxEVT_BUTTON, &MainFrame::OnRefresh, this);
 
         // Create timer for progress updates
         progressTimer = new wxTimer(this);
@@ -476,6 +482,7 @@ public:
         stopButton->SetFont(customFont);
         timeLabel->SetFont(customFont);
         currentSongLabel->SetFont(customFont);
+        refreshButton->SetFont(customFont);
 
         // Bind the close event
         Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnClose, this);
@@ -492,6 +499,15 @@ public:
     void RefreshAllButtons() {
         // Refresh all buttons in the frame and its children
         RefreshButtonsInWindow(this);
+    }
+
+    void OnRefresh(wxCommandEvent& event) {
+        wxString currentSearch = searchBox->GetValue();
+        LoadSongs("songs");
+        if (!currentSearch.IsEmpty()) {
+            FilterSongs(currentSearch);
+        }
+        RefreshAllButtons();
     }
 
 private:
@@ -752,6 +768,7 @@ private:
     DarkButton* playButton;
     DarkButton* pauseButton;
     DarkButton* stopButton;
+    DarkButton* refreshButton;
     CustomProgressBar* progressBar;
     wxStaticText* timeLabel;
     wxTimer* progressTimer;
