@@ -45,6 +45,22 @@ WEBFISHING Guitar Player consists of two main components:
 3. In WEBFISHING, start playing the guitar.
 4. In the Guitar Player, select a song from the processed list and click "Play".
 
+#### Linux
+
+While this project does not officially support Linux, it is possible to use `protontricks` to run WEBFISHING Guitar Player inside of WEBFISHING's Proton prefix.
+
+1. Follow the normal [Installation](#installation) instructions above (clone/download, ensure you have a `midi` folder)
+2. Install [`protontricks`](https://github.com/Matoking/protontricks) (`pipx install protontricks`, or install via flatpak, see associated readme for more in depth instructions)
+3. `cd` into the folder where the `.exe` files are and run them like so:
+```bash
+# 3146520 is WEBFISHING's steam app id
+protontricks-launch --appid 3146520 ./MIDIProcessor.exe # converts .mid files from ./midi/
+protontricks-launch --appid 3146520 ./GuitarPlayer.exe # main guitar player application; WEBFISHING must already be running
+```
+
+> [!NOTE]
+> When running `MIDIProcessor.exe`, the program wont actually exit when its done. Watch the log for it to mention writing `conversion_stats.txt` and then you're safe to kill it with <kbd>^C</kbd>.
+
 ## Important Notes
 
 - The game only supports notes from 40 to 79. Notes outside this range will be adapted or omitted.
