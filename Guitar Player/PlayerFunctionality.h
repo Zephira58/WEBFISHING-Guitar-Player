@@ -118,12 +118,12 @@ std::vector<std::string> explode_midi(std::string const& s, char delim)
     return result;
 }
 
-void LoadSongFromFile(std::string filepath, std::vector<SoundEvent>& song) {
+void LoadSongFromFile(const std::filesystem::path& filepath, std::vector<SoundEvent>& song) {
     song.clear();
     std::ifstream songFile(filepath);
     if (!songFile.is_open()) {
         WindowsUtility::showMessageBox(
-            "Failed to open song file: " + filepath,
+            "Failed to open song file: " + filepath.string(),
             "Error",
             MB_OK | MB_ICONERROR
         );
@@ -131,7 +131,6 @@ void LoadSongFromFile(std::string filepath, std::vector<SoundEvent>& song) {
     }
     std::string tempLine;
     int outOfRangeNotes = 0;
-
     while (std::getline(songFile, tempLine)) {
         if (tempLine.size() < 3)
             continue;
@@ -147,9 +146,8 @@ void LoadSongFromFile(std::string filepath, std::vector<SoundEvent>& song) {
         }
         song.push_back(SoundEvent(time, tempNotes));
     }
-
     std::cout << "Song loading complete." << std::endl;
-    //std::cout << "Number of notes out of range (< 40 or > 80): " << outOfRangeNotes << std::endl;  // This now gets omitted by the midi converter.
+    //std::cout << "Number of notes out of range (< 40 or > 80): " << outOfRangeNotes << std::endl;
 }
 
 std::array<std::chrono::steady_clock::time_point, 6> lastStringUsageTime;
@@ -277,9 +275,8 @@ void clickThroughAllPositions(int windowWidth, int windowHeight) {
     }
 }
 
-void PlaySong(std::string songFileName, bool& isPlaying, bool& isPaused, int& currentProgress, int& totalDuration, double& playbackSpeed) {
+void PlaySong(const std::filesystem::path& songPath, bool& isPlaying, bool& isPaused, int& currentProgress, int& totalDuration, double& playbackSpeed) {
     std::vector<SoundEvent> songData;
-    std::string songPath = "songs\\" + songFileName;
     LoadSongFromFile(songPath, songData);
 
     if (!songData.empty()) {

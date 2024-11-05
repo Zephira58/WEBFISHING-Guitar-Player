@@ -630,12 +630,21 @@ private:
         listBox->Clear();
         allSongs.clear();
 
-        for (const auto& entry : std::filesystem::directory_iterator(folder)) {
-            if (entry.is_regular_file()) {
-                wxString songName = entry.path().filename().string();
-                listBox->Append(songName);
-                allSongs.push_back(songName);
+        try {
+            const std::filesystem::path songPath(folder);
+
+            for (const auto& entry : std::filesystem::directory_iterator(songPath)) {
+                if (entry.is_regular_file()) {
+                    // Convert to wstring then to wxString to handle Unicode properly
+                    wxString filename(entry.path().filename().wstring());
+
+                    listBox->Append(filename);
+                    allSongs.push_back(filename);
+                }
             }
+        }
+        catch (const std::filesystem::filesystem_error& e) {
+            wxMessageBox("Error loading songs", "Error", wxOK | wxICON_ERROR);
         }
     }
 
@@ -645,30 +654,44 @@ private:
         event.Skip();
     }
 
+    std::string GetFullPath(const std::string& filename) {
+        return std::filesystem::path("songs").append(filename).string();
+    }
+
     void OnPlay(wxCommandEvent& event) {
         if (listBox->GetSelection() != wxNOT_FOUND) {
             if (isPaused) {
-                // Resume playback
                 isPaused = false;
                 isPlayingSong = true;
                 UpdateButtonStates();
                 ResumePlayback();
             }
             else if (!isPlayingSong) {
-                // Start new playback
-                selectedSongFileName = listBox->GetString(listBox->GetSelection()).ToStdString();
-                currentSongLabel->SetLabel(selectedSongFileName); // Update label when starting playback
+                wxString filename = listBox->GetString(listBox->GetSelection());
+                std::filesystem::path songPath("songs");
+                songPath /= filename.ToStdWstring();
+                //selectedSongFileName = "songs/" + filename.utf8_string();
+                //std::string filePath = songPath.string();
+                if (!std::filesystem::exists(songPath)) {
+                    wxMessageBox("Cannot find file: " + filename, "Error", wxOK | wxICON_ERROR);
+                    return;
+                }
+
+                currentSongLabel->SetLabel(filename);
                 StopPlayback();
                 isPlayingSong = true;
                 isPaused = false;
                 currentProgress = 0;
-                progressTimer->Start(100); // Update every 100ms
+                progressTimer->Start(100);
+
                 if (songPlayerThread.joinable()) {
                     songPlayerThread.join();
                 }
-                songPlayerThread = std::thread(PlaySong, selectedSongFileName, std::ref(isPlayingSong),
-                    std::ref(isPaused), std::ref(currentProgress), 
-                    std::ref(totalDuration), std::ref(playbackSpeed));
+
+                songPlayerThread = std::thread(PlaySong, songPath,
+                    std::ref(isPlayingSong), std::ref(isPaused),
+                    std::ref(currentProgress), std::ref(totalDuration),
+                    std::ref(playbackSpeed));
 
                 UpdateButtonStates();
             }
