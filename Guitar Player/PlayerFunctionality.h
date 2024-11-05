@@ -17,6 +17,10 @@
 #include "WindowsUtility.h"
 #include "InputBlocker.h"
 
+
+
+#include "MidiProcessing.h"
+
 const std::array<int, 16> low_e = { 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55 };
 const std::array<int, 16> a = { 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60 };
 const std::array<int, 16> d = { 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65 };
@@ -28,11 +32,6 @@ static std::vector<int> lastClickedPositions(6, 0);  // Track last clicked posit
 
 
 
-struct SoundEvent {
-    int timestampMS;
-    std::vector<float> notes;
-    SoundEvent(int time, std::vector<float> noteList) : timestampMS(time), notes(noteList) {}
-};
 
 
 struct MouseClick {
@@ -120,39 +119,72 @@ std::vector<std::string> explode_midi(std::string const& s, char delim)
 
 void LoadSongFromFile(const std::filesystem::path& filepath, std::vector<SoundEvent>& song) {
     song.clear();
-    std::ifstream songFile(filepath);
-    if (!songFile.is_open()) {
-        WindowsUtility::showMessageBox(
-            "Failed to open song file: " + filepath.string(),
-            "Error",
-            MB_OK | MB_ICONERROR
-        );
-        return;
+    std::string fileContent;
+
+    // Handle MIDI files
+    if (filepath.extension().string() == ".mid") {
+        fileContent = convertMidiToText(filepath);
     }
+    // Handle regular text files
+    else {
+        std::ifstream songFile(filepath);
+        if (!songFile.is_open()) {
+            WindowsUtility::showMessageBox(
+                "Failed to open song file: " + filepath.string(),
+                "Error",
+                MB_OK | MB_ICONERROR
+            );
+            return;
+        }
+
+        // Read entire file into string
+        std::stringstream buffer;
+        buffer << songFile.rdbuf();
+        fileContent = buffer.str();
+    }
+
+    // Process the content string
+    std::istringstream contentStream(fileContent);
     std::string tempLine;
     int outOfRangeNotes = 0;
-    while (std::getline(songFile, tempLine)) {
+
+    while (std::getline(contentStream, tempLine)) {
         if (tempLine.size() < 3)
             continue;
+
         std::vector<std::string> split = explode_midi(tempLine, ' ');
-        int time = std::stoi(split[0]);
-        std::vector<float> tempNotes;
-        for (unsigned i = 1; i < split.size(); i++) {
-            float note = std::stof(split[i]);
-            tempNotes.push_back(note);
-            if (note < 40 || note > 79) {
-                outOfRangeNotes++;
+        if (split.empty())
+            continue;
+
+        try {
+            int time = std::stoi(split[0]);
+            std::vector<uint8_t> tempNotes;
+
+            for (size_t i = 1; i < split.size(); i++) {
+                float note = std::stof(split[i]);
+                tempNotes.push_back(static_cast<uint8_t>(note));
+                if (note < 40 || note > 79) {
+                    outOfRangeNotes++;
+                }
             }
+
+            song.push_back(SoundEvent(time, tempNotes));
         }
-        song.push_back(SoundEvent(time, tempNotes));
+        catch (const std::exception& e) {
+            std::cerr << "Error processing line: " << tempLine << "\nError: " << e.what() << std::endl;
+            continue;
+        }
     }
+
     std::cout << "Song loading complete." << std::endl;
-    //std::cout << "Number of notes out of range (< 40 or > 80): " << outOfRangeNotes << std::endl;
+    if (outOfRangeNotes > 0) {
+        std::cout << "Number of notes out of range (< 40 or > 79): " << outOfRangeNotes << std::endl;
+    }
 }
 
 std::array<std::chrono::steady_clock::time_point, 6> lastStringUsageTime;
-void playNotes(const std::vector<float>& notes) {
-    std::vector<float> sortedNotes = notes;
+void playNotes(const std::vector<uint8_t>& notes) {
+    std::vector<uint8_t> sortedNotes = notes;
     std::sort(sortedNotes.begin(), sortedNotes.end(), std::greater<float>());
     std::vector<MouseClick> clicksToSend;
     std::vector<char> keysToPress;
@@ -280,7 +312,7 @@ void PlaySong(const std::filesystem::path& songPath, bool& isPlaying, bool& isPa
     LoadSongFromFile(songPath, songData);
 
     if (!songData.empty()) {
-        totalDuration = songData.back().timestampMS;
+        totalDuration = songData.back().timestamp;
     }
 
     const std::string processName = "webfishing.exe";
@@ -345,7 +377,7 @@ void PlaySong(const std::filesystem::path& songPath, bool& isPlaying, bool& isPa
         // Find the next note to play
         size_t nextIndex = 0;
         for (; nextIndex < songData.size(); nextIndex++) {
-            if (songData[nextIndex].timestampMS > currentProgress) {
+            if (songData[nextIndex].timestamp > currentProgress) {
                 break;
             }
         }
@@ -356,7 +388,7 @@ void PlaySong(const std::filesystem::path& songPath, bool& isPlaying, bool& isPa
         }
 
         const auto& nextEvent = songData[nextIndex];
-        long long waitTime = static_cast<long long>((nextEvent.timestampMS - currentProgress) / playbackSpeed);
+        long long waitTime = static_cast<long long>((nextEvent.timestamp - currentProgress) / playbackSpeed);
 
         if (waitTime > 0) {
             // Wait in small intervals to stay responsive
@@ -382,11 +414,11 @@ void PlaySong(const std::filesystem::path& songPath, bool& isPlaying, bool& isPa
                 lastUpdateTime = now;
                 previousProgress = currentProgress;
 
-                waitTime = static_cast<long long>((nextEvent.timestampMS - currentProgress) / playbackSpeed);
+                waitTime = static_cast<long long>((nextEvent.timestamp - currentProgress) / playbackSpeed);
             }
         }
 
-        if (isPlaying && !isPaused && abs(currentProgress - nextEvent.timestampMS) < 100) {
+        if (isPlaying && !isPaused && abs(currentProgress - nextEvent.timestamp) < 100) {
             playNotes(nextEvent.notes);
         }
     }

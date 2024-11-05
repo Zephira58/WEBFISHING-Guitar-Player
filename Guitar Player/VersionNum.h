@@ -1,2 +1,2 @@
 #pragma once
-#define VERSIONSTR "1.1.2"
+#define VERSIONSTR "1.1.3"

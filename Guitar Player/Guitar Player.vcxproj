@@ -135,11 +135,25 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Midifile\Binasc.cpp" />
+    <ClCompile Include="Midifile\MidiEvent.cpp" />
+    <ClCompile Include="Midifile\MidiEventList.cpp" />
+    <ClCompile Include="Midifile\MidiFile.cpp" />
+    <ClCompile Include="Midifile\MidiMessage.cpp" />
+    <ClCompile Include="Midifile\Options.cpp" />
+    <ClCompile Include="MidiProcessing.cpp" />
     <ClCompile Include="Source.cpp" />
     <ClCompile Include="WindowsUtility.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="InputBlocker.h" />
+    <ClInclude Include="Midifile\Binasc.h" />
+    <ClInclude Include="Midifile\MidiEvent.h" />
+    <ClInclude Include="Midifile\MidiEventList.h" />
+    <ClInclude Include="Midifile\MidiFile.h" />
+    <ClInclude Include="Midifile\MidiMessage.h" />
+    <ClInclude Include="Midifile\Options.h" />
+    <ClInclude Include="MidiProcessing.h" />
     <ClInclude Include="PlayerFunctionality.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="VersionNum.h" />

@@ -13,12 +13,39 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Header Files\Midifile">
+      <UniqueIdentifier>{19b42c73-e11c-4ee2-91aa-e619142630f6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Midifile">
+      <UniqueIdentifier>{3ab8f3c8-c8c2-4bcd-9a19-f4268a52cdb2}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Source.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="WindowsUtility.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Midifile\MidiEvent.cpp">
+      <Filter>Source Files\Midifile</Filter>
+    </ClCompile>
+    <ClCompile Include="Midifile\MidiEventList.cpp">
+      <Filter>Source Files\Midifile</Filter>
+    </ClCompile>
+    <ClCompile Include="Midifile\MidiFile.cpp">
+      <Filter>Source Files\Midifile</Filter>
+    </ClCompile>
+    <ClCompile Include="Midifile\MidiMessage.cpp">
+      <Filter>Source Files\Midifile</Filter>
+    </ClCompile>
+    <ClCompile Include="Midifile\Options.cpp">
+      <Filter>Source Files\Midifile</Filter>
+    </ClCompile>
+    <ClCompile Include="Midifile\Binasc.cpp">
+      <Filter>Source Files\Midifile</Filter>
+    </ClCompile>
+    <ClCompile Include="MidiProcessing.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -36,6 +63,27 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="InputBlocker.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Midifile\MidiEventList.h">
+      <Filter>Header Files\Midifile</Filter>
+    </ClInclude>
+    <ClInclude Include="Midifile\MidiFile.h">
+      <Filter>Header Files\Midifile</Filter>
+    </ClInclude>
+    <ClInclude Include="Midifile\MidiMessage.h">
+      <Filter>Header Files\Midifile</Filter>
+    </ClInclude>
+    <ClInclude Include="Midifile\Options.h">
+      <Filter>Header Files\Midifile</Filter>
+    </ClInclude>
+    <ClInclude Include="Midifile\Binasc.h">
+      <Filter>Header Files\Midifile</Filter>
+    </ClInclude>
+    <ClInclude Include="Midifile\MidiEvent.h">
+      <Filter>Header Files\Midifile</Filter>
+    </ClInclude>
+    <ClInclude Include="MidiProcessing.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
