@@ -8,8 +8,8 @@ There is a discord server [here](https://discord.gg/7WtemYDazb) for sharing MIDI
 
 WEBFISHING Guitar Player consists of two main components:
 
-1. **MIDIProcessor**: Converts and prepares MIDI files for use in the game.
-2. **Guitar Player**: Plays the processed MIDI files as guitar sounds in WEBFISHING.
+1. **Guitar Player**: Plays processed MIDI files and .mid files as guitar sounds in WEBFISHING.
+2. **MIDIProcessor**: Converts and prepares MIDI files for use in the game.  This is old and no longer required to use.
 
 ## Key Features
 
@@ -23,12 +23,11 @@ WEBFISHING Guitar Player consists of two main components:
 ### Prerequisites
 
 - WEBFISHING game installed
-- MIDI files you want to play (place them in a "midi" folder) (I have included a folder of already processed songs too)
+- MIDI files you want to play (place them in the "songs" folder) (I have included a folder of already processed songs too)
 
 ### Installation
 
-1. Clone this repository or download the latest release.
-2. Ensure you have a "midi" folder containing the MIDI files you want to use.
+1. Download the latest GuitarPlayer.zip from the Releases page.
 
 ### Usage
 
