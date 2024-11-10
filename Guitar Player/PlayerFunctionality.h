@@ -377,7 +377,7 @@ void PlaySong(const std::filesystem::path& songPath, bool& isPlaying, bool& isPa
         // Find the next note to play
         size_t nextIndex = 0;
         for (; nextIndex < songData.size(); nextIndex++) {
-            if (songData[nextIndex].timestamp > currentProgress) {
+            if (songData[nextIndex].timestamp >= currentProgress) {
                 break;
             }
         }
