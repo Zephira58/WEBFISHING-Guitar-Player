@@ -3,6 +3,10 @@
 This project enhances the WEBFISHING game by providing a guitar-playing feature that runs in the background while you play.
 There is a discord server [here](https://discord.gg/7WtemYDazb) for sharing MIDI files, feel free to join and contribute your own MIDIs.
 
+## Fork Information 
+This is my custom fork of [KevAquilas upstream repo](https://github.com/KevAquila/WEBFISHING-Guitar-Player) including fixes, small improvements, and my personal collection of midi songs. That I've put together. If you like my changes feel free to put in some support on the upstream repos [pulls requests](https://github.com/KevAquila/WEBFISHING-Guitar-Player/pulls/Zephira58) so they can be offically implimented into the base version of the midi player! ❤️
+
+-From Zephi
 
 ## Overview
 
